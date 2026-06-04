@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeLens — AI Code Analysis Agent</title>
+  <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon" />
+
+  <!-- Highlight.js for syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- Google Fonts: Instrument Serif (display) + DM Mono (code) + DM Sans (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ============================================================
+       CSS CUSTOM PROPERTIES — Single source of truth for the theme
+       ============================================================ */
+    :root {
+      --bg:           #f5f4f0;
+      --bg-card:      rgba(255, 255, 255, 0.72);
+      --bg-glass:     rgba(255, 255, 255, 0.55);
+      --bg-input:     rgba(255, 255, 255, 0.9);
+      --border:       rgba(0, 0, 0, 0.08);
+      --border-strong:rgba(0, 0, 0, 0.15);
+      --accent:       #1a1a2e;
+      --accent-mid:   #2d2d4e;
+      --accent-glow:  #5b5bd6;
+      --accent-soft:  rgba(91, 91, 214, 0.12);
+      --text-primary: #111118;
+      --text-secondary:#4a4a5a;
+      --text-muted:   #8a8a9a;
+      --severity-critical: #e53e3e;
+      --severity-high:     #dd6b20;
+      --severity-medium:   #d69e2e;
+      --severity-low:      #38a169;
+      --tag-code:     #5b5bd6;
+      --tag-error:    #e53e3e;
+      --tag-both:     #d69e2e;
+      --shadow-sm:    0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md:    0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+      --shadow-lg:    0 12px 48px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.06);
+      --radius:       16px;
+      --radius-sm:    8px;
+      --radius-pill:  999px;
+      --transition:   0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background-color: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Subtle grain texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.6;
+    }
+
+    /* ============================================================
+       LAYOUT
+       ============================================================ */
+    .page-wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 32px 80px;
+    }
+
+    /* ============================================================
+       AMBIENT BACKGROUND BLOBS
+       ============================================================ */
+    .ambient {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.35;
+    }
+    .ambient-1 {
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, #c3b8f8, transparent);
+      top: -200px; right: -200px;
+    }
+    .ambient-2 {
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, #f8c8b0, transparent);
+      bottom: 100px; left: -180px;
+    }
+    .ambient-3 {
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, #b0d8f8, transparent);
+      top: 40%; left: 40%;
+    }
+
+    /* ============================================================
+       HEADER / NAVIGATION
+       ============================================================ */
+    .navbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 0 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 56px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: var(--accent);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-icon svg { width: 20px; height: 20px; fill: white; }
+
+    .logo-text {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.5rem;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+    .logo-text span { color: var(--accent-glow); }
+
+    .nav-badge {
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: rgba(0,0,0,0.05);
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ============================================================
+       HERO SECTION
+       ============================================================ */
+    .hero {
+      text-align: center;
+      margin-bottom: 56px;
+      animation: fadeSlideUp 0.6s ease both;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent-glow);
+      background: var(--accent-soft);
+      padding: 5px 14px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(91, 91, 214, 0.2);
+      margin-bottom: 20px;
+    }
+    .hero-eyebrow::before {
+      content: '';
+      width: 6px; height: 6px;
+      background: var(--accent-glow);
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .hero h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: clamp(2.4rem, 5vw, 4rem);
+      line-height: 1.1;
+      color: var(--text-primary);
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+    .hero h1 em { font-style: italic; color: var(--accent-glow); }
+
+    .hero p {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 540px;
+      margin: 0 auto;
+      font-weight: 300;
+    }
+
+    /* ============================================================
+       INPUT AREA
+       ============================================================ */
+    .input-panel {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: var(--shadow-md);
+      margin-bottom: 40px;
+      animation: fadeSlideUp 0.6s 0.1s ease both;
+    }
+
+    .input-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .input-label-text {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .char-counter {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      transition: color var(--transition);
+    }
+    .char-counter.warn { color: var(--severity-medium); }
+    .char-counter.error { color: var(--severity-critical); }
+
+    .code-textarea {
+      width: 100%;
+      min-height: 260px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.65;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 18px 20px;
+      color: var(--text-primary);
+      resize: vertical;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      caret-color: var(--accent-glow);
+    }
+    .code-textarea:focus {
+      border-color: var(--accent-glow);
+      box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.15);
+    }
+    .code-textarea::placeholder { color: var(--text-muted); font-style: italic; }
+
+    .input-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .input-hints {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .hint-chip {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: rgba(0,0,0,0.04);
+      border: 1px solid var(--border);
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+    }
+
+    /* ============================================================
+       ANALYSE BUTTON
+       ============================================================ */
+    .btn-analyse {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 28px;
+      background: var(--accent);
+      color: white;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      letter-spacing: 0.01em;
+      transition: all var(--transition);
+      box-shadow: 0 2px 12px rgba(26,26,46,0.3);
+      position: relative;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .btn-analyse::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+      pointer-events: none;
+    }
+    .btn-analyse:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(26,26,46,0.35);
+      background: var(--accent-mid);
+    }
+    .btn-analyse:active { transform: translateY(0); }
+    .btn-analyse:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-analyse svg { width: 16px; height: 16px; fill: currentColor; flex-shrink: 0; }
+
+    /* ============================================================
+       LOADING STATE
+       ============================================================ */
+    .loading-overlay {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 60px 40px;
+      text-align: center;
+    }
+    .loading-overlay.active { display: flex; }
+
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent-glow);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-stages {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .stage-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border-strong);
+      transition: background 0.3s ease, transform 0.3s ease;
+    }
+    .stage-dot.active {
+      background: var(--accent-glow);
+      transform: scale(1.3);
+    }
+    .stage-dot.done { background: var(--severity-low); }
+
+    .loading-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-family: 'DM Mono', monospace;
+      min-height: 20px;
+    }
+
+    /* ============================================================
+       ERROR TOAST
+       ============================================================ */
+    .error-toast {
+      display: none;
+      align-items: flex-start;
+      gap: 12px;
+      background: rgba(229, 62, 62, 0.08);
+      border: 1px solid rgba(229, 62, 62, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 16px 18px;
+      margin-bottom: 28px;
+      animation: fadeSlideUp 0.3s ease both;
+    }
+    .error-toast.active { display: flex; }
+    .error-toast-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+    .error-toast-body { flex: 1; }
+    .error-toast-title { font-weight: 600; font-size: 0.875rem; color: var(--severity-critical); margin-bottom: 2px; }
+    .error-toast-msg { font-size: 0.8rem; color: var(--text-secondary); }
+
+    /* ============================================================
+       RESULTS SECTION
+       ============================================================ */
+    #results-section {
+      display: none;
+      animation: fadeSlideUp 0.5s ease both;
+    }
+    #results-section.active { display: block; }
+
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .results-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .meta-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+    }
+    .meta-tag.code    { background: rgba(91, 91, 214, 0.1); color: var(--tag-code); border: 1px solid rgba(91,91,214,0.2); }
+    .meta-tag.error   { background: rgba(229, 62, 62, 0.1); color: var(--tag-error); border: 1px solid rgba(229,62,62,0.2); }
+    .meta-tag.both    { background: rgba(214, 158, 46, 0.1); color: var(--tag-both); border: 1px solid rgba(214,158,46,0.2); }
+    .meta-tag.neutral { background: rgba(0,0,0,0.04); color: var(--text-muted); border: 1px solid var(--border); }
+
+    .results-title {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.6rem;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    /* ============================================================
+       TAB NAVIGATION
+       ============================================================ */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: rgba(0,0,0,0.04);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+      margin-bottom: 32px;
+      width: fit-content;
+    }
+
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 18px;
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--transition);
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.6); }
+    .tab-btn.active {
+      background: white;
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+    .tab-btn .tab-icon { font-size: 1rem; }
+
+    .tab-count {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: var(--radius-pill);
+      background: rgba(0,0,0,0.06);
+      color: var(--text-muted);
+      min-width: 18px;
+      text-align: center;
+    }
+    .tab-btn.active .tab-count { background: var(--accent-soft); color: var(--accent-glow); }
+
+    /* ============================================================
+       TAB PANELS
+       ============================================================ */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ============================================================
+       CARDS — Shared glass card component
+       ============================================================ */
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+      margin-bottom: 20px;
+      transition: box-shadow var(--transition), transform var(--transition);
+    }
+    .card:hover { box-shadow: var(--shadow-lg); }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+    .card-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text-primary);
+    }
+    .card-icon { font-size: 1.1rem; }
+
+    .collapse-btn {
+      width: 28px; height: 28px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted);
+      transition: all var(--transition);
+      font-size: 0.7rem;
+    }
+    .collapse-btn:hover { background: rgba(0,0,0,0.04); color: var(--text-primary); }
+    .collapse-btn.collapsed { transform: rotate(-90deg); }
+
+    .card-body {
+      padding: 24px;
+    }
+    .card-body.collapsed { display: none; }
+
+    /* ============================================================
+       EXPLANATION PANEL
+       ============================================================ */
+    .overview-block {
+      background: var(--accent-soft);
+      border: 1px solid rgba(91, 91, 214, 0.15);
+      border-radius: var(--radius-sm);
+      padding: 18px 20px;
+      margin-bottom: 24px;
+    }
+    .overview-block p {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .section-subheader {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      margin-top: 24px;
+    }
+    .section-subheader:first-child { margin-top: 0; }
+
+    .markdown-content {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      line-height: 1.75;
+    }
+    .markdown-content strong { color: var(--text-primary); font-weight: 600; }
+    .markdown-content code {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.82em;
+      background: rgba(0,0,0,0.06);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent-glow);
+    }
+    .markdown-content pre { margin: 12px 0; }
+    .markdown-content p { margin-bottom: 10px; }
+    .markdown-content ul, .markdown-content ol { padding-left: 22px; margin-bottom: 10px; }
+    .markdown-content li { margin-bottom: 4px; }
+    .markdown-content h1,.markdown-content h2,.markdown-content h3,.markdown-content h4 {
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 18px 0 8px;
+      font-size: 0.9rem;
+    }
+
+    /* ============================================================
+       BUG CARDS
+       ============================================================ */
+    .bug-summary-strip {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: rgba(0,0,0,0.02);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .bug-stat {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .bug-stat-num {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.8rem;
+      line-height: 1;
+      color: var(--text-primary);
+    }
+    .bug-stat-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .bug-stat-divider {
+      width: 1px;
+      height: 28px;
+      background: var(--border);
+    }
+
+    .bug-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin-bottom: 12px;
+      transition: box-shadow var(--transition);
+    }
+    .bug-item:hover { box-shadow: var(--shadow-sm); }
+
+    .bug-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(255,255,255,0.5);
+    }
+
+    .severity-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .severity-dot.critical { background: var(--severity-critical); box-shadow: 0 0 0 3px rgba(229,62,62,0.2); }
+    .severity-dot.high     { background: var(--severity-high);     box-shadow: 0 0 0 3px rgba(221,107,32,0.2); }
+    .severity-dot.medium   { background: var(--severity-medium);   box-shadow: 0 0 0 3px rgba(214,158,46,0.2); }
+    .severity-dot.low      { background: var(--severity-low);      box-shadow: 0 0 0 3px rgba(56,161,105,0.2); }
+
+    .bug-item-title { font-size: 0.875rem; font-weight: 600; flex: 1; color: var(--text-primary); }
+
+    .severity-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+    }
+    .severity-badge.critical { background: rgba(229,62,62,0.1);  color: var(--severity-critical); border: 1px solid rgba(229,62,62,0.2); }
+    .severity-badge.high     { background: rgba(221,107,32,0.1); color: var(--severity-high);     border: 1px solid rgba(221,107,32,0.2); }
+    .severity-badge.medium   { background: rgba(214,158,46,0.1); color: var(--severity-medium);   border: 1px solid rgba(214,158,46,0.2); }
+    .severity-badge.low      { background: rgba(56,161,105,0.1); color: var(--severity-low);      border: 1px solid rgba(56,161,105,0.2); }
+
+    .bug-item-body {
+      display: none;
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      background: white;
+    }
+    .bug-item-body.open { display: block; }
+
+    .bug-field { margin-bottom: 14px; }
+    .bug-field:last-child { margin-bottom: 0; }
+    .bug-field-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .bug-field-value { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; }
+
+    /* ============================================================
+       IMPROVEMENT PANEL
+       ============================================================ */
+    .scores-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .score-tile {
+      background: rgba(255,255,255,0.7);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      text-align: center;
+    }
+    .score-tile-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .score-tile-value {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.7rem;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .score-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .score-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent-glow), #8b8be8);
+      transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+      width: 0%;
+    }
+
+    .rec-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin-bottom: 12px;
+      transition: box-shadow var(--transition);
+    }
+    .rec-item:hover { box-shadow: var(--shadow-sm); }
+
+    .rec-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(255,255,255,0.5);
+    }
+
+    .priority-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+    }
+    .priority-badge.high   { background: rgba(229,62,62,0.08);  color: var(--severity-critical); border: 1px solid rgba(229,62,62,0.15); }
+    .priority-badge.medium { background: rgba(214,158,46,0.1); color: var(--severity-medium);   border: 1px solid rgba(214,158,46,0.2); }
+    .priority-badge.low    { background: rgba(56,161,105,0.1); color: var(--severity-low);      border: 1px solid rgba(56,161,105,0.2); }
+
+    .rec-category-chip {
+      font-size: 0.65rem;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      background: var(--accent-soft);
+      color: var(--accent-glow);
+      border: 1px solid rgba(91,91,214,0.15);
+    }
+
+    .rec-item-title { font-size: 0.875rem; font-weight: 600; flex: 1; color: var(--text-primary); }
+
+    .rec-item-body {
+      display: none;
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      background: white;
+    }
+    .rec-item-body.open { display: block; }
+
+    /* ============================================================
+       CODE BLOCKS (Highlight.js)
+       ============================================================ */
+    .hljs-wrapper {
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin: 10px 0;
+      box-shadow: var(--shadow-sm);
+    }
+    .hljs-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: #1a1b26;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .hljs-lang {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      color: rgba(255,255,255,0.35);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .copy-btn {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: rgba(255,255,255,0.4);
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 3px 9px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .copy-btn:hover { color: white; border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); }
+    .copy-btn.copied { color: #68d391; border-color: rgba(104,211,145,0.3); }
+
+    pre code.hljs { border-radius: 0; padding: 16px 18px; font-family: 'DM Mono', monospace; font-size: 0.82rem; }
+
+    /* ============================================================
+       NO BUGS EMPTY STATE
+       ============================================================ */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+      text-align: center;
+      gap: 12px;
+    }
+    .empty-state-icon { font-size: 2.5rem; }
+    .empty-state-title { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
+    .empty-state-sub { font-size: 0.85rem; color: var(--text-muted); }
+
+    /* ============================================================
+       ANIMATIONS
+       ============================================================ */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ============================================================
+       RESPONSIVE
+       ============================================================ */
+    @media (max-width: 768px) {
+      .page-wrapper { padding: 0 16px 60px; }
+      .navbar { margin-bottom: 36px; }
+      .tabs { width: 100%; overflow-x: auto; }
+      .scores-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient blobs -->
+  <div class="ambient ambient-1"></div>
+  <div class="ambient ambient-2"></div>
+  <div class="ambient ambient-3"></div>
+
+  <div class="page-wrapper">
+
+    <!-- =========================================================
+         NAVBAR
+         ========================================================= -->
+    <nav class="navbar">
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14.5 2.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM3 7l4-1.5L9 7l-2 4H5L3 7zm16.5 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM7 14l2-1 3 4-2 1-3-4zm6 1l1-2 4 2-1 2-4-2z"/>
+          </svg>
+        </div>
+        <span class="logo-text">Code<span>Lens</span></span>
+      </a>
+      <span class="nav-badge">AI Analysis Agent</span>
+    </nav>
+
+    <!-- =========================================================
+         HERO
+         ========================================================= -->
+    <section class="hero">
+      <div class="hero-eyebrow">Powered by Llama 3.3 70B via Groq</div>
+      <h1>Understand code.<br /><em>Instantly.</em></h1>
+      <p>Paste any code snippet or error trace. Get a deep explanation, bug analysis, and improvement roadmap in seconds.</p>
+    </section>
+
+    <!-- =========================================================
+         INPUT PANEL
+         ========================================================= -->
+    <div class="input-panel">
+      <div class="input-label">
+        <span class="input-label-text">Your Code or Error Trace</span>
+        <span class="char-counter" id="charCounter">0 / 12,000</span>
+      </div>
+      <textarea
+        class="code-textarea"
+        id="codeInput"
+        placeholder="# Paste your Python, JavaScript, Java, C++... or an error stack trace here.&#10;&#10;def example(data):&#10;    result = data[0]  # potential IndexError&#10;    return result / 0  # ZeroDivisionError"
+        spellcheck="false"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+      ></textarea>
+      <div class="input-footer">
+        <div class="input-hints">
+          <span class="hint-chip">Python</span>
+          <span class="hint-chip">JavaScript</span>
+          <span class="hint-chip">Java</span>
+          <span class="hint-chip">C / C++</span>
+          <span class="hint-chip">Stack Traces</span>
+          <span class="hint-chip">Mixed</span>
+        </div>
+        <button class="btn-analyse" id="analyseBtn" onclick="runAnalysis()">
+          <svg viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+          Analyse Code
+        </button>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         ERROR TOAST
+         ========================================================= -->
+    <div class="error-toast" id="errorToast">
+      <span class="error-toast-icon">⚠️</span>
+      <div class="error-toast-body">
+        <div class="error-toast-title">Analysis Failed</div>
+        <div class="error-toast-msg" id="errorMsg">An unexpected error occurred.</div>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         LOADING STATE
+         ========================================================= -->
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      <div class="loading-stages">
+        <div class="stage-dot" id="dot-0"></div>
+        <div class="stage-dot" id="dot-1"></div>
+        <div class="stage-dot" id="dot-2"></div>
+        <div class="stage-dot" id="dot-3"></div>
+        <div class="stage-dot" id="dot-4"></div>
+      </div>
+      <div class="loading-text" id="loadingText">Preprocessing input…</div>
+    </div>
+
+    <!-- =========================================================
+         RESULTS SECTION
+         ========================================================= -->
+    <section id="results-section">
+
+      <div class="results-header">
+        <div>
+          <h2 class="results-title">Analysis Complete</h2>
+        </div>
+        <div class="results-meta">
+          <span class="meta-tag neutral" id="metaElapsed">—</span>
+          <span class="meta-tag neutral" id="metaChars">—</span>
+          <span class="meta-tag" id="metaClassification">—</span>
+        </div>
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="explanation" onclick="switchTab('explanation')">
+          <span class="tab-icon">🔍</span> Explanation
+        </button>
+        <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">
+          <span class="tab-icon">🐛</span> Bug Analysis
+          <span class="tab-count" id="bugTabCount">0</span>
+        </button>
+        <button class="tab-btn" data-tab="improvements" onclick="switchTab('improvements')">
+          <span class="tab-icon">🚀</span> Improvements
+          <span class="tab-count" id="impTabCount">0</span>
+        </button>
+      </div>
+
+      <!-- ======= TAB: EXPLANATION ======= -->
+      <div class="tab-panel active" id="panel-explanation">
+
+        <!-- Overview -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">🔭</span>
+              <span class="card-title">Overview</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div class="overview-block">
+              <div class="markdown-content" id="expOverview">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section Breakdown -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">🧩</span>
+              <span class="card-title">Section-by-Section Breakdown</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div class="markdown-content" id="expBreakdown">—</div>
+          </div>
+        </div>
+
+        <!-- Patterns -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">🛠️</span>
+              <span class="card-title">Language &amp; Patterns Detected</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div class="markdown-content" id="expPatterns">—</div>
+          </div>
+        </div>
+
+        <!-- Gotchas -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">⚠️</span>
+              <span class="card-title">Complexity &amp; Gotchas</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div class="markdown-content" id="expGotchas">—</div>
+          </div>
+        </div>
+
+      </div><!-- /panel-explanation -->
+
+      <!-- ======= TAB: BUGS ======= -->
+      <div class="tab-panel" id="panel-bugs">
+
+        <div class="card">
+          <div class="bug-summary-strip" id="bugSummaryStrip">
+            <!-- Populated dynamically -->
+          </div>
+          <div class="card-body">
+            <div class="section-subheader">Detected Issues</div>
+            <div id="bugList">
+              <!-- Populated dynamically -->
+            </div>
+            <div class="section-subheader" style="margin-top:24px;">Verified Correct Logic</div>
+            <div class="markdown-content" id="bugVerified">—</div>
+          </div>
+        </div>
+
+      </div><!-- /panel-bugs -->
+
+      <!-- ======= TAB: IMPROVEMENTS ======= -->
+      <div class="tab-panel" id="panel-improvements">
+
+        <!-- Scores -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">📊</span>
+              <span class="card-title">Code Quality Scores</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div class="scores-grid" id="scoresGrid">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">🚀</span>
+              <span class="card-title">Recommendations</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div id="recList">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Strengths -->
+        <div class="card">
+          <div class="card-header" onclick="toggleCard(this)">
+            <div class="card-header-left">
+              <span class="card-icon">🏆</span>
+              <span class="card-title">What's Done Well</span>
+            </div>
+            <button class="collapse-btn">▼</button>
+          </div>
+          <div class="card-body">
+            <div class="markdown-content" id="impStrengths">—</div>
+          </div>
+        </div>
+
+      </div><!-- /panel-improvements -->
+
+    </section><!-- /results-section -->
+
+  </div><!-- /page-wrapper -->
+
+  <!-- =========================================================
+       APPLICATION JAVASCRIPT
+       ========================================================= -->
+  <script>
+    // ============================================================
+    // UTILITIES
+    // ============================================================
+    const MAX_CHARS = 12000;
+    const LOADING_STAGES = [
+      "Preprocessing input…",
+      "Classifying payload type…",
+      "Compiling prompt templates…",
+      "Running deep AI analysis…",
+      "Formatting results…",
+    ];
+
+    let loadingInterval = null;
+
+    /** Safely convert a plain string to HTML, preventing XSS. */
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.appendChild(document.createTextNode(text));
+      return div.innerHTML;
+    }
+
+    /**
+     * Very minimal Markdown → HTML renderer for the subset our LLM produces.
+     * Handles: bold (**), inline code (`), headings (##), ordered/unordered
+     * lists, fenced code blocks (```), and paragraphs.
+     */
+    function renderMarkdown(md) {
+      if (!md) return '';
+      let html = md;
+
+      // Fenced code blocks — extract and preserve, replace after other transforms.
+      const codeBlocks = [];
+      html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+        const idx = codeBlocks.length;
+        codeBlocks.push({ lang: lang || 'plaintext', code: code.trim() });
+        return `__CODEBLOCK_${idx}__`;
+      });
+
+      // Headings (H3, H4).
+      html = html.replace(/^#{3,4}\s+(.+)$/gm, (_, t) => `<h4>${t}</h4>`);
+      html = html.replace(/^#{1,2}\s+(.+)$/gm, (_, t) => `<h3>${t}</h3>`);
+
+      // Bold.
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+      // Inline code.
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+      // Unordered lists.
+      html = html.replace(/(?:^|\n)((?:\s*[-*+]\s+.+\n?)+)/g, (_, block) => {
+        const items = block.trim().split('\n')
+          .filter(l => l.trim())
+          .map(l => `<li>${l.replace(/^\s*[-*+]\s+/, '')}</li>`)
+          .join('');
+        return `<ul>${items}</ul>`;
+      });
+
+      // Ordered lists.
+      html = html.replace(/(?:^|\n)((?:\s*\d+\.\s+.+\n?)+)/g, (_, block) => {
+        const items = block.trim().split('\n')
+          .filter(l => l.trim())
+          .map(l => `<li>${l.replace(/^\s*\d+\.\s+/, '')}</li>`)
+          .join('');
+        return `<ol>${items}</ol>`;
+      });
+
+      // Paragraphs: double newline → paragraph break.
+      html = html.replace(/\n{2,}/g, '</p><p>');
+      html = `<p>${html}</p>`;
+
+      // Restore code blocks with Highlight.js.
+      codeBlocks.forEach(({ lang, code }, idx) => {
+        const highlighted = hljs.highlightAuto(code, lang !== 'plaintext' ? [lang] : undefined).value;
+        const blockHtml = `
+          <div class="hljs-wrapper">
+            <div class="hljs-header">
+              <span class="hljs-lang">${escapeHtml(lang)}</span>
+              <button class="copy-btn" onclick="copyCode(this, ${JSON.stringify(code)})">Copy</button>
+            </div>
+            <pre><code class="hljs language-${escapeHtml(lang)}">${highlighted}</code></pre>
+          </div>`;
+        html = html.replace(`__CODEBLOCK_${idx}__`, blockHtml);
+      });
+
+      // Clean up empty tags.
+      html = html.replace(/<p><\/p>/g, '').replace(/<p>\s*<\/p>/g, '');
+
+      return html;
+    }
+
+    /** Render a standalone code snippet with Highlight.js chrome. */
+    function renderCodeBlock(code, lang = 'plaintext') {
+      if (!code) return '<em style="color:var(--text-muted);font-size:0.8rem;">No code snippet provided.</em>';
+      const safeLang = lang || 'plaintext';
+      const highlighted = hljs.highlightAuto(code).value;
+      return `
+        <div class="hljs-wrapper">
+          <div class="hljs-header">
+            <span class="hljs-lang">Fixed Code</span>
+            <button class="copy-btn" onclick="copyCode(this, ${JSON.stringify(code)})">Copy</button>
+          </div>
+          <pre><code class="hljs">${highlighted}</code></pre>
+        </div>`;
+    }
+
+    /** Copy text to clipboard; briefly change button label. */
+    function copyCode(btn, code) {
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied ✓';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+
+    // ============================================================
+    // CHARACTER COUNTER
+    // ============================================================
+    const codeInput = document.getElementById('codeInput');
+    const charCounter = document.getElementById('charCounter');
+
+    codeInput.addEventListener('input', () => {
+      const count = codeInput.value.length;
+      charCounter.textContent = `${count.toLocaleString()} / ${MAX_CHARS.toLocaleString()}`;
+      charCounter.classList.toggle('warn', count > MAX_CHARS * 0.8 && count <= MAX_CHARS);
+      charCounter.classList.toggle('error', count > MAX_CHARS);
+    });
+
+    // ============================================================
+    // TAB SWITCHING
+    // ============================================================
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+      document.getElementById(`panel-${name}`).classList.add('active');
+    }
+
+    // ============================================================
+    // COLLAPSIBLE CARDS
+    // ============================================================
+    function toggleCard(header) {
+      const body = header.nextElementSibling;
+      const btn = header.querySelector('.collapse-btn');
+      body.classList.toggle('collapsed');
+      btn.classList.toggle('collapsed');
+    }
+
+    // ============================================================
+    // LOADING STAGE ANIMATOR
+    // ============================================================
+    function startLoadingAnimation() {
+      let stage = 0;
+      document.querySelectorAll('.stage-dot').forEach(d => {
+        d.classList.remove('active', 'done');
+      });
+      document.getElementById('loadingText').textContent = LOADING_STAGES[0];
+      document.getElementById(`dot-0`).classList.add('active');
+
+      loadingInterval = setInterval(() => {
+        document.getElementById(`dot-${stage}`).classList.remove('active');
+        document.getElementById(`dot-${stage}`).classList.add('done');
+        stage++;
+        if (stage < LOADING_STAGES.length) {
+          document.getElementById(`dot-${stage}`).classList.add('active');
+          document.getElementById('loadingText').textContent = LOADING_STAGES[stage];
+        } else {
+          clearInterval(loadingInterval);
+        }
+      }, 1400);
+    }
+
+    function stopLoadingAnimation() {
+      if (loadingInterval) clearInterval(loadingInterval);
+      document.querySelectorAll('.stage-dot').forEach(d => d.classList.remove('active'));
+    }
+
+    // ============================================================
+    // SHOW / HIDE UI STATES
+    // ============================================================
+    function showLoading() {
+      document.getElementById('analyseBtn').disabled = true;
+      document.getElementById('errorToast').classList.remove('active');
+      document.getElementById('results-section').classList.remove('active');
+      document.getElementById('loadingOverlay').classList.add('active');
+      startLoadingAnimation();
+    }
+
+    function hideLoading() {
+      document.getElementById('analyseBtn').disabled = false;
+      document.getElementById('loadingOverlay').classList.remove('active');
+      stopLoadingAnimation();
+    }
+
+    function showError(message) {
+      document.getElementById('errorMsg').textContent = message;
+      document.getElementById('errorToast').classList.add('active');
+      document.getElementById('errorToast').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // ============================================================
+    // RESULT POPULATION
+    // ============================================================
+
+    /** Populate the Explanation tab. */
+    function populateExplanation(data) {
+      document.getElementById('expOverview').innerHTML    = renderMarkdown(data.overview || data.full_markdown);
+      document.getElementById('expBreakdown').innerHTML   = renderMarkdown(data.breakdown);
+      document.getElementById('expPatterns').innerHTML    = renderMarkdown(data.patterns);
+      document.getElementById('expGotchas').innerHTML     = renderMarkdown(data.gotchas);
+    }
+
+    /** Populate the Bug Analysis tab. */
+    function populateBugs(data) {
+      const bugs = data.bugs || [];
+      const count = data.bug_count || bugs.length;
+
+      // Summary strip.
+      const severityCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+      bugs.forEach(b => {
+        const s = (b.severity || '').trim();
+        if (severityCounts[s] !== undefined) severityCounts[s]++;
+      });
+
+      document.getElementById('bugSummaryStrip').innerHTML = `
+        <div class="bug-stat">
+          <span class="bug-stat-num">${count}</span>
+          <span class="bug-stat-label">Issues Found</span>
+        </div>
+        <div class="bug-stat-divider"></div>
+        ${Object.entries(severityCounts).map(([k,v]) => v > 0 ? `
+          <div class="bug-stat">
+            <span class="bug-stat-num" style="font-size:1.2rem;color:var(--severity-${k.toLowerCase()})">${v}</span>
+            <span class="bug-stat-label">${k}</span>
+          </div>` : '').join('')}
+      `;
+
+      // Update tab count badge.
+      document.getElementById('bugTabCount').textContent = count;
+
+      // Bug list.
+      const bugListEl = document.getElementById('bugList');
+      if (bugs.length === 0) {
+        bugListEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">✅</div>
+            <div class="empty-state-title">No bugs detected</div>
+            <div class="empty-state-sub">The AI found no obvious errors or exceptions in this input.</div>
+          </div>`;
+      } else {
+        bugListEl.innerHTML = bugs.map((bug, i) => {
+          const sev = (bug.severity || 'medium').toLowerCase();
+          const title = bug.title || `Issue ${i + 1}`;
+          const bodyId = `bug-body-${i}`;
+          return `
+            <div class="bug-item">
+              <div class="bug-item-header" onclick="toggleBugItem('${bodyId}')">
+                <div class="severity-dot ${sev}"></div>
+                <span class="bug-item-title">${escapeHtml(title)}</span>
+                <span class="severity-badge ${sev}">${escapeHtml(bug.severity || 'Unknown')}</span>
+              </div>
+              <div class="bug-item-body" id="${bodyId}">
+                ${bug.type ? `<div class="bug-field"><div class="bug-field-label">Type</div><div class="bug-field-value">${escapeHtml(bug.type)}</div></div>` : ''}
+                ${bug.location ? `<div class="bug-field"><div class="bug-field-label">Location</div><div class="bug-field-value">${escapeHtml(bug.location)}</div></div>` : ''}
+                ${bug.root_cause ? `<div class="bug-field"><div class="bug-field-label">Root Cause</div><div class="bug-field-value">${renderMarkdown(bug.root_cause)}</div></div>` : ''}
+                ${bug.fix_code ? `<div class="bug-field"><div class="bug-field-label">Suggested Fix</div>${renderCodeBlock(bug.fix_code)}</div>` : ''}
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      // Verified correct section.
+      document.getElementById('bugVerified').innerHTML = renderMarkdown(data.verified_correct || '_No specific sections highlighted._');
+    }
+
+    /** Populate the Improvements tab. */
+    function populateImprovements(data) {
+      // Scores grid.
+      const scores = data.scores || {};
+      const scoresEl = document.getElementById('scoresGrid');
+      if (Object.keys(scores).length === 0) {
+        scoresEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No scores returned.</p>';
+      } else {
+        scoresEl.innerHTML = Object.entries(scores).map(([label, val]) => {
+          const num = parseInt(val) || 0;
+          const pct = (num / 10) * 100;
+          return `
+            <div class="score-tile">
+              <div class="score-tile-label">${escapeHtml(label)}</div>
+              <div class="score-tile-value">${escapeHtml(val)}</div>
+              <div class="score-bar"><div class="score-bar-fill" style="width:0%" data-target="${pct}%"></div></div>
+            </div>`;
+        }).join('');
+
+        // Animate score bars after a brief delay.
+        setTimeout(() => {
+          document.querySelectorAll('.score-bar-fill').forEach(bar => {
+            bar.style.width = bar.dataset.target;
+          });
+        }, 100);
+      }
+
+      // Recommendations list.
+      const recs = data.recommendations || [];
+      document.getElementById('impTabCount').textContent = recs.length;
+      const recListEl = document.getElementById('recList');
+
+      if (recs.length === 0) {
+        recListEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🏆</div>
+            <div class="empty-state-title">No improvements suggested</div>
+            <div class="empty-state-sub">The AI considers this code to be well-implemented.</div>
+          </div>`;
+      } else {
+        recListEl.innerHTML = recs.map((rec, i) => {
+          const priority = (rec.priority || 'medium').toLowerCase();
+          const bodyId = `rec-body-${i}`;
+          return `
+            <div class="rec-item">
+              <div class="rec-item-header" onclick="toggleRecItem('${bodyId}')">
+                <span class="priority-badge ${priority}">${escapeHtml(rec.priority || 'Medium')}</span>
+                ${rec.category ? `<span class="rec-category-chip">${escapeHtml(rec.category)}</span>` : ''}
+                <span class="rec-item-title">${escapeHtml(rec.title || `Improvement ${i + 1}`)}</span>
+              </div>
+              <div class="rec-item-body" id="${bodyId}">
+                ${rec.issue ? `<div class="bug-field"><div class="bug-field-label">Current Issue</div><div class="bug-field-value">${renderMarkdown(rec.issue)}</div></div>` : ''}
+                ${rec.code_snippet ? `<div class="bug-field"><div class="bug-field-label">Suggested Refactor</div>${renderCodeBlock(rec.code_snippet)}</div>` : ''}
+                ${rec.rationale ? `<div class="bug-field"><div class="bug-field-label">Rationale</div><div class="bug-field-value">${renderMarkdown(rec.rationale)}</div></div>` : ''}
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      // Strengths.
+      document.getElementById('impStrengths').innerHTML = renderMarkdown(data.strengths || '_No strengths specifically highlighted._');
+    }
+
+    /** Toggle individual bug item expansion. */
+    function toggleBugItem(bodyId) {
+      document.getElementById(bodyId).classList.toggle('open');
+    }
+
+    /** Toggle individual recommendation item expansion. */
+    function toggleRecItem(bodyId) {
+      document.getElementById(bodyId).classList.toggle('open');
+    }
+
+    // ============================================================
+    // META BAR POPULATION
+    // ============================================================
+    function populateMeta(meta, classification) {
+      const labelMap = { code: 'Source Code', error: 'Stack Trace', both: 'Code + Trace' };
+      const classMap = { code: 'code', error: 'error', both: 'both' };
+      const cls = classification || 'code';
+
+      document.getElementById('metaElapsed').textContent = `${meta.elapsed_ms}ms`;
+      document.getElementById('metaChars').textContent = `${meta.input_chars.toLocaleString()} chars`;
+
+      const metaCls = document.getElementById('metaClassification');
+      metaCls.textContent = labelMap[cls] || cls;
+      metaCls.className = `meta-tag ${classMap[cls] || 'neutral'}`;
+    }
+
+    // ============================================================
+    // MAIN ANALYSIS ENTRY POINT
+    // ============================================================
+    async function runAnalysis() {
+      const code = codeInput.value.trim();
+
+      if (!code) {
+        showError('Please paste some code or an error trace before running analysis.');
+        return;
+      }
+      if (code.length > MAX_CHARS) {
+        showError(`Input exceeds the ${MAX_CHARS.toLocaleString()} character limit. Please trim your code.`);
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch('/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+
+        const result = await response.json();
+        hideLoading();
+
+        if (!result.success) {
+          showError(`[${result.stage}] ${result.error}`);
+          return;
+        }
+
+        const { data, meta } = result;
+
+        // Populate all three panels.
+        populateExplanation(data.explanation || {});
+        populateBugs(data.bug_detection || {});
+        populateImprovements(data.improvement || {});
+        populateMeta(meta, data.classification);
+
+        // Show results, switch to explanation tab.
+        document.getElementById('results-section').classList.add('active');
+        switchTab('explanation');
+        document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      } catch (err) {
+        hideLoading();
+        showError(`Network error: ${err.message}`);
+      }
+    }
+
+    // Allow Ctrl+Enter / Cmd+Enter to trigger analysis.
+    codeInput.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runAnalysis();
+    });
+  </script>
+
+</body>
+</html>
